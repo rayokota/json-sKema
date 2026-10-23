@@ -241,8 +241,9 @@ System.out.println(result.getInstance()); // prints the object with "prop": 1 ad
 Some notes on how defaults are applied:
  * the defaults are added after the other keywords of the same schema are checked, so a property that is missing but
    has a default still fails `"required"`, `"dependentRequired"` etc.
- * if the object fails to validate against a subschema, then the defaults added by that subschema are removed, so for example
-   only the matching `"oneOf"` branch contributes defaults
+ * if the instance fails to validate against a subschema, then the defaults added while validating against that subschema
+   (including the ones added to nested objects) are removed, so for example only the matching `"oneOf"` branch contributes defaults
+ * if the validation fails, the returned instance is the instance passed to `validateWithDefaults()`
  * the default values themselves are not validated
  * only the `"default"` of the property subschema is used; it is not looked up through `"$ref"`
 

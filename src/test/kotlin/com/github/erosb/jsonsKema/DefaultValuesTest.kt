@@ -251,6 +251,74 @@ class DefaultValuesTest {
     }
 
     @Test
+    fun `defaults of nested objects in failing oneOf branch are rolled back`() {
+        val validator = validator("""
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "nested": {
+                                "properties": {
+                                    "a": { "default": 1 }
+                                }
+                            },
+                            "arr": {
+                                "items": {
+                                    "properties": {
+                                        "b": { "default": 2 }
+                                    }
+                                }
+                            },
+                            "kind": { "const": "x" }
+                        }
+                    },
+                    {
+                        "properties": {
+                            "kind": { "const": "y" }
+                        }
+                    }
+                ]
+            }
+        """)
+
+        val actual = validator.validateWithDefaults(json("""{"nested": {}, "arr": [{}], "kind": "y"}"""))
+
+        assertNull(actual.failure)
+        assertEquals(json("""{"nested": {}, "arr": [{}], "kind": "y"}"""), actual.instance)
+    }
+
+    @Test
+    fun `defaults of failing branch do not affect later branches`() {
+        val validator = validator("""
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "nested": {
+                                "properties": {
+                                    "a": { "default": 1 }
+                                }
+                            },
+                            "kind": { "const": "x" }
+                        }
+                    },
+                    {
+                        "properties": {
+                            "nested": { "additionalProperties": false },
+                            "kind": { "const": "y" }
+                        }
+                    }
+                ]
+            }
+        """)
+
+        val actual = validator.validateWithDefaults(json("""{"nested": {}, "kind": "y"}"""))
+
+        assertNull(actual.failure)
+        assertEquals(json("""{"nested": {}, "kind": "y"}"""), actual.instance)
+    }
+
+    @Test
     fun `defaults are applied after required and dependentRequired are checked`() {
         val validator = validator("""
             {
@@ -362,7 +430,7 @@ class DefaultValuesTest {
     }
 
     @Test
-    fun `defaults of valid nested objects are kept if validation fails`() {
+    fun `instance is returned unchanged if validation fails`() {
         val validator = validator("""
             {
                 "properties": {
@@ -376,11 +444,12 @@ class DefaultValuesTest {
                 }
             }
         """)
+        val instance = json("""{"nested": {}, "c": 3}""")
 
-        val actual = validator.validateWithDefaults(json("""{"nested": {}, "c": 3}"""))
+        val actual = validator.validateWithDefaults(instance)
 
         assertNotNull(actual.failure)
-        assertEquals(json("""{"nested": {"a": 1}, "c": 3}"""), actual.instance)
+        assertSame(instance, actual.instance)
     }
 
     @Test

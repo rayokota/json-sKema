@@ -186,8 +186,9 @@ interface Validator {
      * from an instance object, but its subschema in {@code properties} has a {@code default} keyword, the
      * default value is added to the object. The passed instance itself is never modified.
      *
-     * Defaults added while validating against a subschema that the object fails are removed again,
-     * so e.g. only the matching {@code oneOf} branch contributes defaults.
+     * Defaults added while validating against a subschema that fails (including the ones added to nested
+     * objects) are removed again, so e.g. only the matching {@code oneOf} branch contributes defaults.
+     * If the validation fails, the returned instance is the passed instance.
      */
     fun validateWithDefaults(instance: IJsonValue): ValidationResult
 
@@ -239,8 +240,7 @@ private class MarkableJsonArray(private val original: IJsonArray) :
 }
 
 /**
- * A view of an instance object with the default values of missing properties added. Defaults are kept in
- * insertion order, so they can be rolled back to an earlier count when a subschema fails.
+ * A view of an instance object with the default values of missing properties added.
  */
 private class DefaultsApplyingJsonObject(
     private val original: IJsonObject
@@ -260,21 +260,13 @@ private class DefaultsApplyingJsonObject(
             merged ?: (original.properties + defaults).also { merged = it }
         }
 
-    fun addDefault(propName: String, value: IJsonValue) {
-        defaults[JsonString(propName)] = value
+    fun addDefault(propName: IJsonString, value: IJsonValue) {
+        defaults[propName] = value
         merged = null
     }
 
-    fun rollbackTo(count: Int) {
-        if (defaults.size <= count) {
-            return
-        }
-        val iter = defaults.keys.iterator()
-        repeat(count) { iter.next() }
-        while (iter.hasNext()) {
-            iter.next()
-            iter.remove()
-        }
+    fun removeDefault(propName: IJsonString) {
+        defaults.remove(propName)
         merged = null
     }
 
@@ -477,7 +469,18 @@ private class DefaultValidator(
 
     private val defaultsViews: MutableMap<IJsonObject, DefaultsApplyingJsonObject> = IdentityHashMap()
 
-    private var appliedDefaultCount = 0
+    /**
+     * Every default added so far, in insertion order, so that the ones added while validating against a failing
+     * subschema can be removed again.
+     */
+    private val appliedDefaults: MutableList<Pair<DefaultsApplyingJsonObject, IJsonString>> = mutableListOf()
+
+    private fun rollbackDefaultsTo(count: Int) {
+        while (appliedDefaults.size > count) {
+            val (view, propName) = appliedDefaults.removeAt(appliedDefaults.lastIndex)
+            view.removeDefault(propName)
+        }
+    }
 
     private fun defaultsView(obj: IJsonObject): DefaultsApplyingJsonObject = when (obj) {
         is DefaultsApplyingJsonObject -> obj
@@ -533,32 +536,34 @@ private class DefaultValidator(
         dynamicPath.rootDocumentSource = rootSchema.location.documentSource
         try {
             val failure = rootSchema.accept(this)
-            val result = if (appliedDefaultCount > 0) applyDefaultsTo(instance) else instance
+            val result = if (failure == null && appliedDefaults.isNotEmpty()) applyDefaultsTo(instance) else instance
             return ValidationResult(failure, result)
         } finally {
             this.applyDefaults = false
             defaultsViews.clear()
-            appliedDefaultCount = 0
+            appliedDefaults.clear()
         }
     }
 
     override fun shouldVisitUnevaluatedSchemas(result: ValidationFailure?): Boolean = result == null
 
     override fun visitCompositeSchema(schema: CompositeSchema): ValidationFailure? {
+        if (!applyDefaults) {
+            return visitCompositeSchemaWithMarkables(schema)
+        }
+        val appliedDefaultCount = appliedDefaults.size
         val obj = instance
-        if (applyDefaults && obj is IJsonObject) {
-            val view = defaultsView(obj)
-            val defaultCount = view.defaultCount
-            val failure = withOtherInstance(if (obj is MarkableJsonObject) obj else view) {
+        val failure = if (obj is IJsonObject && obj !is MarkableJsonObject) {
+            withOtherInstance(defaultsView(obj)) {
                 visitCompositeSchemaWithMarkables(schema)
             }
-            if (failure != null) {
-                appliedDefaultCount -= view.defaultCount - defaultCount
-                view.rollbackTo(defaultCount)
-            }
-            return failure
+        } else {
+            visitCompositeSchemaWithMarkables(schema)
         }
-        return visitCompositeSchemaWithMarkables(schema)
+        if (failure != null) {
+            rollbackDefaultsTo(appliedDefaultCount)
+        }
+        return failure
     }
 
     private fun visitCompositeSchemaWithMarkables(schema: CompositeSchema): ValidationFailure? {
@@ -611,8 +616,10 @@ private class DefaultValidator(
             if (instance.requireObject()[property] === null) {
                 val default = (schema as? CompositeSchema)?.default
                 if (applyDefaults && default != null) {
-                    defaultsView(instance.requireObject()).addDefault(property, copyOf(default))
-                    appliedDefaultCount++
+                    val view = defaultsView(instance.requireObject())
+                    val propName = JsonString(property)
+                    view.addDefault(propName, copyOf(default))
+                    appliedDefaults.add(view to propName)
                     instance.requireObject().markEvaluated(property)
                 }
                 return@inPathSegment null
