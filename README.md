@@ -14,6 +14,7 @@ Are you new to JSON Schema? Get started with [Understanding JSON Schema](https:/
     * [Loading a schema file from URL](#loading-a-schema-file-from-url)
     * [Pre-registering schemas by URI before schema loading](#pre-registering-schemas-by-uri-before-schema-loading)
     * [Validating in Read or Write context](#validating-in-read-or-write-context)
+    * [Applying default values](#applying-default-values)
     * [SchemaBuilder for dynamic (programmatic) schema construction](#schemabuilder-for-dynamic-programmatic-schema-construction)
     * [YAML Support](#yaml-support)
   * [Compatibility notes](#compatibility-notes)
@@ -207,6 +208,43 @@ var readContextFailure = readContextValidator.validate(instance);
 // prints failure because the write-only property "password" is present in read context
 System.out.println(readContextFailure);
 ```
+
+### Applying default values
+
+The [`"default"`](https://json-schema.org/draft/2020-12/draft-bhutton-json-schema-validation-00#rfc.section.9.2) keyword
+is only an annotation, so `validate()` ignores it. If you call `validateWithDefaults()` instead, then for each property
+that is missing from an instance object, but its subschema under `"properties"` has a `"default"`, the default value
+is added to the object. The result contains both the validation failure (if any) and the instance with the defaults
+applied (the instance passed to the validator is not modified):
+
+```java
+JsonValue schemaJson = new JsonParser("""
+{
+    "properties": {
+        "prop": {
+            "type": "number",
+            "default": 1
+        }
+    }
+}
+""").parse();
+Schema schema = new SchemaLoader(schemaJson).load();
+
+Validator validator = Validator.forSchema(schema);
+
+ValidationResult result = validator.validateWithDefaults(new JsonParser("{}").parse());
+
+System.out.println(result.getFailure()); // prints null
+System.out.println(result.getInstance()); // prints the object with "prop": 1 added
+```
+
+Some notes on how defaults are applied:
+ * the defaults are added after the other keywords of the same schema are checked, so a property that is missing but
+   has a default still fails `"required"`, `"dependentRequired"` etc.
+ * if the object fails to validate against a subschema, then the defaults added by that subschema are removed, so for example
+   only the matching `"oneOf"` branch contributes defaults
+ * the default values themselves are not validated
+ * only the `"default"` of the property subschema is used; it is not looked up through `"$ref"`
 
 ### SchemaBuilder for dynamic (programmatic) schema construction
 
