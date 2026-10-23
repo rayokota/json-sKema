@@ -277,11 +277,6 @@ private class DefaultsApplyingJsonObject(
     override fun <P> maybeObject(fn: (IJsonObject) -> P?): P? = fn(this)
     override fun <P> accept(visitor: JsonVisitor<P>): P? = visitor.visitObject(this)
 
-    override fun equals(other: Any?): Boolean =
-        this === other || (other is IJsonObject && properties == other.properties)
-
-    override fun hashCode(): Int = properties.hashCode()
-
     override fun toString(): String = JsonPrintingVisitor().visitObject(this)!!
 }
 
