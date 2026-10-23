@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class DefaultValuesTest {
@@ -468,5 +469,24 @@ class DefaultValuesTest {
 
         assertEquals(json("""{"a": 2}"""), actual.instance)
         assertEquals(json("{}"), instance)
+    }
+
+    @Test
+    fun `failure instances behave like json objects`() {
+        val validator = validator("""{"required": ["x"], "minProperties": 2}""")
+        val expected = json("""{"a": 1}""")
+
+        val failure = validator.validateWithDefaults(json("""{"a": 1}""")).failure!!
+
+        assertEquals(2, failure.causes.size)
+        failure.causes.forEach {
+            assertTrue(it.instance == expected)
+            assertEquals(expected.hashCode(), it.instance.hashCode())
+            assertEquals(expected.toString(), it.instance.toString())
+        }
+
+        val unevaluated = validator("""{"required": ["x"], "unevaluatedProperties": false}""")
+        assertEquals(expected.toString(), unevaluated.validateWithDefaults(json("""{"a": 1}""")).failure!!.instance.toString())
+        assertEquals(expected.toString(), unevaluated.validate(json("""{"a": 1}"""))!!.instance.toString())
     }
 }

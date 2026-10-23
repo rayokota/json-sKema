@@ -237,6 +237,8 @@ private class MarkableJsonArray(private val original: IJsonArray) :
     override fun markUnevaluated(idx: Int) {
         evaluatedIndexes.remove(idx)
     }
+
+    override fun toString(): String = JsonPrintingVisitor().visitArray(this)
 }
 
 /**
@@ -274,6 +276,13 @@ private class DefaultsApplyingJsonObject(
     override fun requireObject(): IJsonObject = this
     override fun <P> maybeObject(fn: (IJsonObject) -> P?): P? = fn(this)
     override fun <P> accept(visitor: JsonVisitor<P>): P? = visitor.visitObject(this)
+
+    override fun equals(other: Any?): Boolean =
+        this === other || (other is IJsonObject && properties == other.properties)
+
+    override fun hashCode(): Int = properties.hashCode()
+
+    override fun toString(): String = JsonPrintingVisitor().visitObject(this)!!
 }
 
 private class MarkableJsonObject(
@@ -297,6 +306,8 @@ private class MarkableJsonObject(
 
     override fun requireObject(): IJsonObject = this
     override fun <P> maybeObject(fn: (IJsonObject) -> P?): P? = fn(this)
+
+    override fun toString(): String = JsonPrintingVisitor().visitObject(this)!!
 }
 
 private class DefaultValidator(
